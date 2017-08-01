@@ -82,12 +82,10 @@ namespace future
 
     private:
         CThostFtdcMdApi* m_pAPI;
-        int    request_id;
+        int    m_requestid;
         SimpleEvent m_Event;
         bool        m_bfront_status;
-        bool        m_bIsAPIReady;
-
-        map<string, string> m_map_contract;
+        bool        m_blogin_status;
         bool        m_connect_state;
     public:
         atomic<bool> m_running;

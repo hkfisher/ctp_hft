@@ -26,7 +26,9 @@ namespace future
 
     Quote::Quote(void) :
         m_pAPI(NULL),
-        m_bIsAPIReady(false),
+        m_requestid(0),
+        m_bfront_status(false),
+        m_blogin_status(false),
         m_connect_state(false),
         m_chk_thread(nullptr),
         m_running(true)
@@ -50,12 +52,15 @@ namespace future
     int Quote::Run()
     {
         if (NULL == m_pAPI) {
-            cout << "Error: m_pAPI is NULL." << endl;
+            cerr << "error: m_pAPI is NULL." << endl;
             return -1;
         }
 
-        int iErr = 0;
-        //设定服务器IP、端口
+        int ret = TAPIERROR_SUCCEED;
+        //连接服务器IP、端口
+        QString log_str = "正在连接行情服务";
+        APP_LOG(applog::LOG_INFO) << log_str.toStdString();
+        emit signals_write_log(log_str);
         string key = "md_info/ip";
         QString ip = common::get_config_value(key).toString();
         key = "md_info/port";
@@ -63,61 +68,40 @@ namespace future
         string addr;
         addr.append("tcp://").append(ip.toStdString()).append(":").append(std::to_string(port));
         m_pAPI->RegisterSpi(this);                                          // 注册事件类
-        m_pAPI->RegisterFront(const_cast<char*>(addr.c_str()));           // 设置行情前置地址
-        m_pAPI->Init();                                                 // 连接运行
-
+        m_pAPI->RegisterFront(const_cast<char*>(addr.c_str()));             // 设置行情前置地址
+        m_pAPI->Init();                                                     // 连接运行
+        //等待m_bfront_status
+        m_Event.WaitEvent();
+        if (!m_bfront_status) {
+            return ret;
+        }
 
         //登录服务器
-        QString log_str = "正在登录行情服务";
+        log_str = "正在登录行情服务";
         APP_LOG(applog::LOG_INFO) << log_str.toStdString();
         emit signals_write_log(log_str);
-        string key = "md_info/userid";
+        string key = "md_info/brokerid";
+        QString md_brokerid = common::get_config_value(key).toString();
+        key = "md_info/userid";
         QString md_userid = common::get_config_value(key).toString();
         key = "md_info/passwd";
         QString md_passwd = common::getXorEncryptDecrypt(
             common::get_config_value(key).toString());
-
-        TapAPIQuoteLoginAuth stLoginAuth;
-        memset(&stLoginAuth, 0, sizeof(stLoginAuth));
-        strcpy(stLoginAuth.UserNo, md_userid.toStdString().c_str());
-        strcpy(stLoginAuth.Password, md_passwd.toStdString().c_str());
-        stLoginAuth.ISModifyPassword = APIYNFLAG_NO;
-        stLoginAuth.ISDDA = APIYNFLAG_NO;
-        iErr = m_pAPI->Login(&stLoginAuth);
-        if (TAPIERROR_SUCCEED != iErr) {
-            cout << "Login Error:" << iErr << endl;
-            return iErr;
+        CThostFtdcReqUserLoginField loginReq;
+        memset(&loginReq, 0, sizeof(loginReq));
+        strcpy(loginReq.BrokerID, md_brokerid.toStdString.c_str());
+        strcpy(loginReq.UserID, md_userid.toStdString().c_str());
+        strcpy(loginReq.Password, md_passwd.toStdString().c_str());
+        ret = m_pAPI->ReqUserLogin(&loginReq, m_requestid++);
+        if (TAPIERROR_SUCCEED != ret) {
+            cout << "ReqUserLogin Error:" << ret << endl;
+            return ret;
         }
 
-        //等待APIReady
+        //等待m_blogin_status
         m_Event.WaitEvent();
-        if (!m_bIsAPIReady) {
-            return iErr;
-        }
-
-        //得到所有品种
-        //APP_LOG(applog::LOG_INFO) << "Commodity starting";
-        //m_uiSessionID = 0;
-        //m_pAPI->QryCommodity(&m_uiSessionID);
-        ////等待QryCommodity
-        //m_Event.WaitEvent();
-        //if (!m_bCommodity) {
-        //    return;
-        //}
-
-        //得到所有合约
-        log_str = "正在获取行情基础数据。。。";
-        APP_LOG(applog::LOG_INFO) << log_str.toStdString();
-        emit signals_write_log(log_str);
-
-        m_uiSessionID = 0;
-        TapAPICommodity com;
-        memset(&com, 0, sizeof(com));
-        m_pAPI->QryContract(&m_uiSessionID, &com);
-        //等待QryContract
-        m_Event.WaitEvent();
-        if (!m_bContract) {
-            return iErr;
+        if (!m_blogin_status) {
+            return ret;
         }
 
         log_str = "行情服务登录完成";
@@ -126,7 +110,7 @@ namespace future
         emit signals_quote_reconnect();
 
         m_connect_state = true;
-        return iErr;
+        return ret;
     }
 
     void Quote::req_sub_market_data(string& contract)
@@ -135,28 +119,13 @@ namespace future
         APP_LOG(applog::LOG_INFO) << log_str.toStdString();
         emit signals_write_log(log_str);
 
-        TAPIINT32 iErr = TAPIERROR_SUCCEED;
+        int ret = TAPIERROR_SUCCEED;
         //订阅行情
-        int i = 0;
-        for (i = 0; i < contract.length(); i++) {
-            if (contract[i] > '0' && contract[i] < '9') {
-                break;
-            }
-        }
-        string commodity_no = contract.substr(0, i);
-        string contract_no = contract.substr(i, contract.length() - i);
-        TapAPIContract stContract; //CL1705
-        memset(&stContract, 0, sizeof(stContract));
-        strcpy(stContract.Commodity.ExchangeNo, m_map_contract[contract].c_str());
-        stContract.Commodity.CommodityType = DEFAULT_COMMODITY_TYPE;
-        strcpy(stContract.Commodity.CommodityNo, commodity_no.c_str());
-        strcpy(stContract.ContractNo1, contract_no.c_str());
-        stContract.CallOrPutFlag1 = TAPI_CALLPUT_FLAG_PUT;
-        stContract.CallOrPutFlag2 = TAPI_CALLPUT_FLAG_PUT;
-        m_uiSessionID = 0;
-        iErr = m_pAPI->SubscribeQuote(&m_uiSessionID, &stContract);
-        if (TAPIERROR_SUCCEED != iErr) {
-            cout << "SubscribeQuote Error:" << iErr << endl;
+        char ppInstrumentID[1][10];
+        strcpy(ppInstrumentID[0], contract.c_str());
+        ret = m_pAPI->SubscribeMarketData((char**)ppInstrumentID, 1);
+        if (TAPIERROR_SUCCEED != ret) {
+            cout << "SubscribeMarketData Error:" << ret << endl;
             return;
         }
     }
@@ -166,139 +135,15 @@ namespace future
         QString log_str = QObject::tr("%1%2%3").arg("取消订阅").arg(contract.c_str()).arg("行情");
         APP_LOG(applog::LOG_INFO) << log_str.toStdString();
         emit signals_write_log(log_str);
-        TAPIINT32 iErr = TAPIERROR_SUCCEED;
+        int ret = TAPIERROR_SUCCEED;
         //订阅行情
-        int i = 0;
-        for (i = 0; i < contract.length(); i++) {
-            if (contract[i] > '0' && contract[i] < '9') {
-                break;
-            }
-        }
-        string commodity_no = contract.substr(0, i);
-        string contract_no = contract.substr(i, contract.length() - i);
-        TapAPIContract stContract; //CL1705
-        memset(&stContract, 0, sizeof(stContract));
-        strcpy(stContract.Commodity.ExchangeNo, m_map_contract[contract].c_str());
-        stContract.Commodity.CommodityType = DEFAULT_COMMODITY_TYPE;
-        strcpy(stContract.Commodity.CommodityNo, commodity_no.c_str());
-        strcpy(stContract.ContractNo1, contract_no.c_str());
-        stContract.CallOrPutFlag1 = TAPI_CALLPUT_FLAG_NONE;
-        stContract.CallOrPutFlag2 = TAPI_CALLPUT_FLAG_NONE;
-        m_uiSessionID = 0;
-        iErr = m_pAPI->UnSubscribeQuote(&m_uiSessionID, &stContract);
-        if (TAPIERROR_SUCCEED != iErr) {
-            cout << "UnSubscribeQuote Error:" << iErr << endl;
+        char ppInstrumentID[1][10];
+        strcpy(ppInstrumentID[0], contract.c_str());
+        ret = m_pAPI->UnSubscribeMarketData((char**)ppInstrumentID, 1);
+        if (TAPIERROR_SUCCEED != ret) {
+            cout << "UnSubscribeMarketData Error:" << ret << endl;
             return;
         }
-    }
-
-    // ---- ctp_api回调函数 ---- //
-    // 连接成功应答
-    void Quote::OnFrontConnected()
-    {
-        std::cout << __FUNCTION__ << std::endl;
-        CThostFtdcReqUserLoginField loginReq;
-        memset(&loginReq, 0, sizeof(loginReq));
-        strcpy(loginReq.BrokerID, gBrokerID);
-        strcpy(loginReq.UserID, gInvesterID);
-        strcpy(loginReq.Password, gInvesterPassword);
-        int rt = g_pMdUserApi->ReqUserLogin(&loginReq, requestID++);
-        if (!rt)
-            std::cout << "发送登录请求成功" << std::endl;
-        else
-            std::cerr << "发送登录请求失败" << std::endl;
-    }
-
-    // 断开连接通知
-    void Quote::OnFrontDisconnected(int nReason)
-    {
-        std::cerr << __FUNCTION__ << std::endl;
-        std::cerr << "错误码： " << nReason << std::endl;
-    }
-
-    // 心跳超时警告
-    void Quote::OnHeartBeatWarning(int nTimeLapse)
-    {
-        std::cerr << __FUNCTION__ << std::endl;
-        std::cerr << "距上次连接时间： " << nTimeLapse << std::endl;
-    }
-
-    // 登录应答
-    void Quote::OnRspUserLogin(
-        CThostFtdcRspUserLoginField *pRspUserLogin,
-        CThostFtdcRspInfoField *pRspInfo,
-        int nRequestID,
-        bool bIsLast)
-    {
-        std::cout << __FUNCTION__ << std::endl;
-        bool bResult = pRspInfo && (pRspInfo->ErrorID != 0);
-        if (!bResult)
-        {
-            std::cout << "交易日： " << pRspUserLogin->TradingDay << std::endl;
-            std::cout << "登录时间： " << pRspUserLogin->LoginTime << std::endl;
-            std::cout << "经纪商： " << pRspUserLogin->BrokerID << std::endl;
-            std::cout << "帐户名： " << pRspUserLogin->UserID << std::endl;
-            // 开始订阅行情
-            int rt = g_pMdUserApi->SubscribeMarketData(g_pInstrumentID, instrumentNum);
-            if (!rt)
-                std::cout << "发送订阅行情请求成功" << std::endl;
-            else
-                std::cerr << "发送订阅行情请求失败" << std::endl;
-        }
-        else
-            std::cerr << "返回错误ErrorID=" << pRspInfo->ErrorID << ", ErrorMsg=" << pRspInfo->ErrorMsg << std::endl;
-    }
-
-    // 登出应答
-    void Quote::OnRspUserLogout(
-        CThostFtdcUserLogoutField *pUserLogout,
-        CThostFtdcRspInfoField *pRspInfo,
-        int nRequestID,
-        bool bIsLast)
-    {
-        std::cout << __FUNCTION__ << std::endl;
-        bool bResult = pRspInfo && (pRspInfo->ErrorID != 0);
-        if (!bResult)
-        {
-            std::cout << "账户登出成功" << std::endl;
-            std::cout << "经纪商： " << pUserLogout->BrokerID << std::endl;
-            std::cout << "帐户名： " << pUserLogout->UserID << std::endl;
-        }
-        else
-            std::cerr << "返回错误ErrorID=" << pRspInfo->ErrorID << ", ErrorMsg=" << pRspInfo->ErrorMsg << std::endl;
-    }
-
-    // 错误通知
-    void Quote::OnRspError(CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast)
-    {
-        std::cout << __FUNCTION__ << std::endl;
-        bool bResult = pRspInfo && (pRspInfo->ErrorID != 0);
-        if (bResult)
-            std::cerr << "返回错误ErrorID=" << pRspInfo->ErrorID << ", ErrorMsg=" << pRspInfo->ErrorMsg << std::endl;
-    }
-
-    void TAP_CDECL Quote::OnRspLogin(TAPIINT32 errorCode, const TapAPIQuotLoginRspInfo *info)
-    {
-        if (TAPIERROR_SUCCEED == errorCode) {
-            QString log_str = "登录成功，等待API初始化...";
-            APP_LOG(applog::LOG_INFO) << log_str.toStdString();
-            emit signals_write_log(log_str);
-        } else {
-            QString log_str = QObject::tr("%1%2").arg("登录失败，错误码:").
-                arg(errorCode);
-            APP_LOG(applog::LOG_INFO) << log_str.toStdString();
-            emit signals_write_log(log_str);
-            m_Event.SignalEvent();
-        }
-    }
-
-    void TAP_CDECL Quote::OnAPIReady()
-    {
-        QString log_str = "API初始化完成";
-        APP_LOG(applog::LOG_INFO) << log_str.toStdString();
-        emit signals_write_log(log_str);
-        m_bIsAPIReady = true;
-        m_Event.SignalEvent();
     }
 
     void Quote::thread_reconnect()
@@ -311,11 +156,23 @@ namespace future
         }
     }
 
-    void TAP_CDECL Quote::OnDisconnect(TAPIINT32 reasonCode)
+    // ---- ctp_api回调函数 ---- //
+    // 连接成功应答
+    void Quote::OnFrontConnected()
+    {
+        QString log_str = "md API连接成功";
+        APP_LOG(applog::LOG_INFO) << log_str.toStdString();
+        emit signals_write_log(log_str);
+        m_bfront_status = true;
+        m_Event.SignalEvent();
+    }
+
+    // 断开连接通知
+    void Quote::OnFrontDisconnected(int nReason)
     {
         if (!m_running) return;
         QString log_str = QObject::tr("%1%2").arg("API断开,断开原因:").
-            arg(reasonCode);
+            arg(nReason);
         APP_LOG(applog::LOG_INFO) << log_str.toStdString();
         emit signals_write_log(log_str);
 
@@ -325,66 +182,110 @@ namespace future
             std::bind(&Quote::thread_reconnect, this));
     }
 
-    void TAP_CDECL Quote::OnRspQryCommodity(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIQuoteCommodityInfo *info)
+    // 心跳超时警告
+    void Quote::OnHeartBeatWarning(int nTimeLapse)
     {
-        cout << __FUNCTION__ << " is called." << endl;
-        //APP_LOG(applog::LOG_INFO) << info->Commodity.ExchangeNo << " "
-        //    << info->Commodity.CommodityType << " "
-        //    << info->Commodity.CommodityNo;
-        //if (isLast == APIYNFLAG_YES) {
-        //    m_bCommodity = true;
-        //    m_Event.SignalEvent();
-        //}
+        std::cerr << "=====网络心跳超时=====" << std::endl;
+        std::cerr << "距上次连接时间： " << nTimeLapse << std::endl;
     }
 
-    void TAP_CDECL Quote::OnRspQryContract(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIQuoteContractInfo *info)
+    // 登录应答
+    void Quote::OnRspUserLogin(
+        CThostFtdcRspUserLoginField *pRspUserLogin,
+        CThostFtdcRspInfoField *pRspInfo,
+        int nRequestID,
+        bool bIsLast)
     {
-        cout << __FUNCTION__ << " is called." << endl;
-        if (info->Contract.Commodity.CommodityType == TAPI_COMMODITY_TYPE_FUTURES) {
-            string key =  string(info->Contract.Commodity.CommodityNo) + 
-                info->Contract.ContractNo1;
-            m_map_contract[key] = info->Contract.Commodity.ExchangeNo;
+        bool bResult = pRspInfo && (pRspInfo->ErrorID != 0);
+        if (!bResult) {
+            QString log_str = "md API登录成功";
+            APP_LOG(applog::LOG_INFO) << log_str.toStdString();
+            emit signals_write_log(log_str);
+            m_blogin_status = true;
         }
-        //APP_LOG(applog::LOG_INFO) << info->Contract.Commodity.ExchangeNo << " "
-        //    << info->Contract.Commodity.CommodityType << " "
-        //    << info->Contract.Commodity.CommodityNo << " "
-        //    << info->Contract.ContractNo1 << " "
-        //    << info->Contract.ContractNo2;
-        if (isLast == APIYNFLAG_YES) {
-            m_bContract = true;
-            m_Event.SignalEvent();
+        else {
+            QString log_str = QObject::tr("%1%2").arg("登录失败，错误码:").
+                arg(pRspInfo->ErrorID);
+            APP_LOG(applog::LOG_INFO) << log_str.toStdString();
+            emit signals_write_log(log_str);
+            
+        }
+        m_Event.SignalEvent();
+    }
+
+    // 登出应答
+    void Quote::OnRspUserLogout(
+        CThostFtdcUserLogoutField *pUserLogout,
+        CThostFtdcRspInfoField *pRspInfo,
+        int nRequestID,
+        bool bIsLast)
+    {
+        std::cout << __FUNCTION__ << std::endl;
+        bool bResult = pRspInfo && (pRspInfo->ErrorID != 0);
+        if (!bResult) {
+            std::cout << "账户登出成功" << std::endl;
+            std::cout << "经纪商： " << pUserLogout->BrokerID << std::endl;
+            std::cout << "帐户名： " << pUserLogout->UserID << std::endl;
+        }
+        else {
+            std::cerr << "返回错误ErrorID=" << pRspInfo->ErrorID << ", ErrorMsg=" << pRspInfo->ErrorMsg << std::endl;
         }
     }
 
-
-    void TAP_CDECL Quote::OnRspSubscribeQuote(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIQuoteWhole *info)
+    // 错误通知
+    void Quote::OnRspError(CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast)
     {
-        if (TAPIERROR_SUCCEED == errorCode) {
+        std::cout << __FUNCTION__ << std::endl;
+        bool bResult = pRspInfo && (pRspInfo->ErrorID != 0);
+        if (bResult)
+            std::cerr << "返回错误ErrorID=" << pRspInfo->ErrorID << ", ErrorMsg=" << pRspInfo->ErrorMsg << std::endl;
+    }
+
+
+    // 订阅行情应答
+    void Quote::OnRspSubMarketData(
+        CThostFtdcSpecificInstrumentField *pSpecificInstrument,
+        CThostFtdcRspInfoField *pRspInfo,
+        int nRequestID,
+        bool bIsLast)
+    {
+        bool bResult = pRspInfo && (pRspInfo->ErrorID != 0);
+        if (!bResult) {
             QString log_str = "行情订阅成功";
             APP_LOG(applog::LOG_INFO) << log_str.toStdString();
             emit signals_write_log(log_str);
-            if (NULL != info) {
-                emit signals_quote_changed(QString::number(info->QLastPrice, 10, 3));
-           }
-        } 
+        }
         else {
             QString log_str = QObject::tr("%1%2").arg("行情订阅失败，错误码：").
-                arg(errorCode);
+                arg(pRspInfo->ErrorID);
             APP_LOG(applog::LOG_INFO) << log_str.toStdString();
             emit signals_write_log(log_str);
 
         }
     }
 
-    void TAP_CDECL Quote::OnRspUnSubscribeQuote(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIContract *info)
+    // 取消订阅行情应答
+    void Quote::OnRspUnSubMarketData(
+        CThostFtdcSpecificInstrumentField *pSpecificInstrument,
+        CThostFtdcRspInfoField *pRspInfo,
+        int nRequestID,
+        bool bIsLast)
     {
-        cout << __FUNCTION__ << " is called." << endl;
+        std::cout << __FUNCTION__ << std::endl;
+        bool bResult = pRspInfo && (pRspInfo->ErrorID != 0);
+        if (!bResult) {
+            std::cout << "=====取消订阅行情成功=====" << std::endl;
+            std::cout << "合约代码： " << pSpecificInstrument->InstrumentID << std::endl;
+        }
+        else
+            std::cerr << "返回错误ErrorID=" << pRspInfo->ErrorID << ", ErrorMsg=" << pRspInfo->ErrorMsg << std::endl;
     }
 
-    void TAP_CDECL Quote::OnRtnQuote(const TapAPIQuoteWhole *info)
+    // 行情详情通知
+    void Quote::OnRtnDepthMarketData(CThostFtdcDepthMarketDataField *pDepthMarketData)
     {
-        if (NULL != info) {
-            emit signals_quote_changed(QString::number(info->QLastPrice, 10, 3));
+        if (NULL != pDepthMarketData) {
+            emit signals_quote_changed(QString::number(pDepthMarketData->LastPrice, 10, 3));
         }
     }
 }

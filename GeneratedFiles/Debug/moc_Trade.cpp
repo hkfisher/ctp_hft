@@ -138,8 +138,8 @@ void *future::Trade::qt_metacast(const char *_clname)
     if (!_clname) return Q_NULLPTR;
     if (!strcmp(_clname, qt_meta_stringdata_future__Trade.stringdata0))
         return static_cast<void*>(const_cast< Trade*>(this));
-    if (!strcmp(_clname, "ITapTradeAPINotify"))
-        return static_cast< ITapTradeAPINotify*>(const_cast< Trade*>(this));
+    if (!strcmp(_clname, "CThostFtdcTraderSpi"))
+        return static_cast< CThostFtdcTraderSpi*>(const_cast< Trade*>(this));
     return QObject::qt_metacast(_clname);
 }
 

@@ -13,7 +13,7 @@ shengkaishan     2017.4.25   1.0     Create
 #ifndef TRADE_H
 #define TRADE_H
 
-#include "iTapTradeAPI.h"
+#include "ThostFtdcTraderApi.h"
 #include "SimpleEvent.h"
 #include <map>
 #include<QObject>
@@ -22,17 +22,16 @@ shengkaishan     2017.4.25   1.0     Create
 #include <thread>
 #include <atomic>
 using namespace std;
-using namespace ITapTrade;
 namespace future
 {
-    class Trade : public QObject, public ITapTradeAPINotify
+    class Trade : public QObject, public CThostFtdcTraderSpi
     {
         Q_OBJECT
     public:
         Trade(void);
         ~Trade(void);
 
-        void SetAPI(ITapTradeAPI *pAPI);
+        void SetAPI(CThostFtdcTraderApi *pAPI);
         void Run();
 
         void qry_postion();
@@ -50,87 +49,64 @@ namespace future
     private:
         void order_state_handle(const TapAPIOrderInfoNotice *info);
         void thread_reconnect();
+
+        bool is_error_rsp(CThostFtdcRspInfoField *pRspInfo); // 是否收到错误信息
     public:
-        //对ITapTradeAPINotify的实现
-        virtual void TAP_CDECL OnConnect();
+        ///当客户端与交易后台建立起通信连接时（还未登录前），该方法被调用。
+        void OnFrontConnected();
 
-        virtual void TAP_CDECL OnRspLogin(TAPIINT32 errorCode, const TapAPITradeLoginRspInfo *loginRspInfo);
+        ///登录请求响应
+        void OnRspUserLogin(CThostFtdcRspUserLoginField *pRspUserLogin, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
 
-        virtual void TAP_CDECL OnAPIReady();
+        ///错误应答
+        void OnRspError(CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
 
-        virtual void TAP_CDECL OnDisconnect(TAPIINT32 reasonCode);
+        ///当客户端与交易后台通信连接断开时，该方法被调用。当发生这个情况后，API会自动重新连接，客户端可不做处理。
+        void OnFrontDisconnected(int nReason);
 
-        virtual void TAP_CDECL OnRspChangePassword(TAPIUINT32 sessionID, TAPIINT32 errorCode);
+        ///心跳超时警告。当长时间未收到报文时，该方法被调用。
+        void OnHeartBeatWarning(int nTimeLapse);
 
-        virtual void TAP_CDECL OnRspSetReservedInfo(TAPIUINT32 sessionID, TAPIINT32 errorCode, const TAPISTR_50 info);
+        ///登出请求响应
+        void OnRspUserLogout(CThostFtdcUserLogoutField *pUserLogout, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
 
-        virtual void TAP_CDECL OnRspQryAccount(TAPIUINT32 sessionID, TAPIUINT32 errorCode, TAPIYNFLAG isLast, const TapAPIAccountInfo *info);
+        ///投资者结算结果确认响应
+        void OnRspSettlementInfoConfirm(CThostFtdcSettlementInfoConfirmField *pSettlementInfoConfirm, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
 
-        virtual void TAP_CDECL OnRspQryFund(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIFundData *info);
+        ///请求查询合约响应
+        void OnRspQryInstrument(CThostFtdcInstrumentField *pInstrument, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
 
-        virtual void TAP_CDECL OnRtnFund(const TapAPIFundData *info);
+        ///请求查询资金账户响应
+        void OnRspQryTradingAccount(CThostFtdcTradingAccountField *pTradingAccount, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
 
-        virtual void TAP_CDECL OnRspQryExchange(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIExchangeInfo *info);
+        ///请求查询投资者持仓响应
+        void OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *pInvestorPosition, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
 
-        virtual void TAP_CDECL OnRspQryCommodity(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPICommodityInfo *info);
+        ///报单录入请求响应
+        void OnRspOrderInsert(CThostFtdcInputOrderField *pInputOrder, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
 
-        virtual void TAP_CDECL OnRspQryContract(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPITradeContractInfo *info);
+        ///报单操作请求响应
+        void OnRspOrderAction(CThostFtdcInputOrderActionField *pInputOrderAction, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
 
-        virtual void TAP_CDECL OnRtnContract(const TapAPITradeContractInfo *info);
+        ///报单通知
+        void OnRtnOrder(CThostFtdcOrderField *pOrder);
 
-        virtual void TAP_CDECL OnRtnOrder(const TapAPIOrderInfoNotice *info);
+        ///成交通知
+        void OnRtnTrade(CThostFtdcTradeField *pTrade);
 
-        virtual void TAP_CDECL OnRspOrderAction(TAPIUINT32 sessionID, TAPIUINT32 errorCode, const TapAPIOrderActionRsp *info);
+        ///报单录入错误回报
+        virtual void OnErrRtnOrderInsert(CThostFtdcInputOrderField *pInputOrder, CThostFtdcRspInfoField *pRspInfo);
 
-        virtual void TAP_CDECL OnRspQryOrder(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIOrderInfo *info);
-
-        virtual void TAP_CDECL OnRspQryOrderProcess(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIOrderInfo *info);
-
-        virtual void TAP_CDECL OnRspQryFill(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIFillInfo *info);
-
-        virtual void TAP_CDECL OnRtnFill(const TapAPIFillInfo *info);
-
-        virtual void TAP_CDECL OnRspQryPosition(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIPositionInfo *info);
-
-        virtual void TAP_CDECL OnRtnPosition(const TapAPIPositionInfo *info);
-
-        virtual void TAP_CDECL OnRspQryClose(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPICloseInfo *info);
-
-        virtual void TAP_CDECL OnRtnClose(const TapAPICloseInfo *info);
-
-        virtual void TAP_CDECL OnRtnPositionProfit(const TapAPIPositionProfitNotice *info);
-
-        virtual void TAP_CDECL OnRspQryCurrency(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPICurrencyInfo *info);
-
-        virtual void TAP_CDECL OnRspQryTradeMessage(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPITradeMessage *info);
-
-        virtual void TAP_CDECL OnRtnTradeMessage(const TapAPITradeMessage *info);
-
-        virtual void TAP_CDECL OnRspQryHisOrder(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIHisOrderQryRsp *info);
-
-        virtual void TAP_CDECL OnRspQryHisOrderProcess(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIHisOrderProcessQryRsp *info);
-
-        virtual void TAP_CDECL OnRspQryHisMatch(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIHisMatchQryRsp *info);
-
-        virtual void TAP_CDECL OnRspQryHisPosition(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIHisPositionQryRsp *info);
-
-        virtual void TAP_CDECL OnRspQryHisDelivery(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIHisDeliveryQryRsp *info);
-
-        virtual void TAP_CDECL OnRspQryAccountCashAdjust(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIAccountCashAdjustQryRsp *info);
-
-        virtual void TAP_CDECL OnRspQryBill(TAPIUINT32 sessionID, TAPIINT32 errorCode, TAPIYNFLAG isLast, const TapAPIBillQryRsp *info);
-
-        virtual void TAP_CDECL OnExpriationDate(ITapTrade::TAPIDATE date, int days);
-
-        virtual void TAP_CDECL OnRspQryAccountFeeRent(ITapTrade::TAPIUINT32 sessionID, ITapTrade::TAPIINT32 errorCode, ITapTrade::TAPIYNFLAG isLast, const ITapTrade::TapAPIAccountFeeRentQryRsp *info);
-
-        virtual void TAP_CDECL OnRspQryAccountMarginRent(ITapTrade::TAPIUINT32 sessionID, ITapTrade::TAPIINT32 errorCode, ITapTrade::TAPIYNFLAG isLast, const ITapTrade::TapAPIAccountMarginRentQryRsp *info);
+        ///报单操作错误回报
+        virtual void OnErrRtnOrderAction(CThostFtdcOrderActionField *pOrderAction, CThostFtdcRspInfoField *pRspInfo);
 
     private:
-        ITapTradeAPI *m_pAPI;
-        TAPIUINT32  m_uiSessionID;
+        CThostFtdcTraderApi *m_pAPI;
+        int    m_requestid;
         SimpleEvent m_Event;
-        bool        m_bIsAPIReady;
+        bool        m_bfront_status;
+        bool        m_blogin_status;
+        bool        m_bconfirm_status;
         bool        m_bContract;
         bool        m_bposition;
         bool        m_border;

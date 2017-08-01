@@ -11,7 +11,6 @@ shengkaishan     2017.4.25   1.0     Create
 
 
 #include "Trade.h"
-#include "iTapAPIError.h"
 #include "TradeConfig.h"
 #include <iostream>
 #include <string.h>
@@ -25,7 +24,8 @@ namespace future
 {
     Trade::Trade(void) :
         m_pAPI(NULL),
-        m_bIsAPIReady(false),
+        m_bfront_status(false),
+        m_blogin_status(false),
         m_bContract(false),
         m_bposition(false),
         m_border(false),
@@ -43,7 +43,7 @@ namespace future
         m_map_order.clear();
     }
 
-    void Trade::SetAPI(ITapTradeAPI *pAPI)
+    void Trade::SetAPI(CThostFtdcTraderApi *pAPI)
     {
         m_pAPI = pAPI;
     }
@@ -55,7 +55,27 @@ namespace future
             return;
         }
 
-        TAPIINT32 iErr = TAPIERROR_SUCCEED;
+        int ret = TAPIERROR_SUCCEED;
+        //连接服务器IP、端口
+        QString log_str = "正在连接交易服务";
+        APP_LOG(applog::LOG_INFO) << log_str.toStdString();
+        emit signals_write_log(log_str);
+        string key = "trader_info/ip";
+        QString ip = common::get_config_value(key).toString();
+        key = "trader_info/port";
+        int port = common::get_config_value(key).toInt();
+        string addr;
+        addr.append("tcp://").append(ip.toStdString()).append(":").append(std::to_string(port));
+        m_pAPI->RegisterSpi(this);                        // 注册事件类
+        m_pAPI->RegisterFront(const_cast<char*>(addr.c_str()));                // 设置交易前置地址
+        m_pAPI->SubscribePublicTopic(THOST_TERT_RESTART);      // 订阅公共流
+        m_pAPI->SubscribePrivateTopic(THOST_TERT_RESUME);     // 订阅私有流
+        m_pAPI->Init();                                        // 连接运行
+        //等待m_bfront_status
+        m_Event.WaitEvent();
+        if (!m_bfront_status) {
+            return;
+        }
 
         //登录服务器
         QString log_str = "正在登录交易服务";
@@ -80,7 +100,7 @@ namespace future
 
         //等待APIReady
         m_Event.WaitEvent();
-        if (!m_bIsAPIReady) {
+        if (!m_blogin_status) {
             cout << "API is not ready";
             return;
         }
@@ -380,35 +400,6 @@ namespace future
         }
     }
 
-    void TAP_CDECL Trade::OnConnect()
-    {
-        cout << __FUNCTION__ << " is called." << endl;
-    }
-
-    void TAP_CDECL Trade::OnRspLogin(TAPIINT32 errorCode, const TapAPITradeLoginRspInfo *loginRspInfo)
-    {
-        if (TAPIERROR_SUCCEED == errorCode) {
-            QString log_str = "登录成功，等待API初始化...";
-            APP_LOG(applog::LOG_INFO) << log_str.toStdString();
-            emit signals_write_log(log_str);
-        } else {
-            QString log_str = QObject::tr("%1%2").arg("登录失败，错误码:").
-                arg(errorCode);
-            APP_LOG(applog::LOG_INFO) << log_str.toStdString();
-            emit signals_write_log(log_str);
-            m_Event.SignalEvent();
-        }
-    }
-
-    void TAP_CDECL Trade::OnAPIReady()
-    {
-        QString log_str = "API初始化完成";
-        APP_LOG(applog::LOG_INFO) << log_str.toStdString();
-        emit signals_write_log(log_str);
-        m_bIsAPIReady = true;
-        m_Event.SignalEvent();
-    }
-
     void Trade::thread_reconnect()
     {
         while (m_running) {
@@ -419,11 +410,55 @@ namespace future
         }
     }
 
-    void TAP_CDECL Trade::OnDisconnect(TAPIINT32 reasonCode)
+    bool Trade::is_error_rsp(CThostFtdcRspInfoField *pRspInfo)
+    {
+        bool bResult = pRspInfo && (pRspInfo->ErrorID != 0);
+        if (bResult)
+            std::cerr << "返回错误ErrorID=" << pRspInfo->ErrorID << ", ErrorMsg=" << pRspInfo->ErrorMsg << std::endl;
+        return bResult;
+    }
+
+    void Trade::OnFrontConnected()
+    {
+        QString log_str = "tr API连接成功";
+        APP_LOG(applog::LOG_INFO) << log_str.toStdString();
+        emit signals_write_log(log_str);
+        m_bfront_status = true;
+        m_Event.SignalEvent();
+    }
+
+    void Trade::OnRspUserLogin(
+        CThostFtdcRspUserLoginField *pRspUserLogin,
+        CThostFtdcRspInfoField *pRspInfo,
+        int nRequestID,
+        bool bIsLast)
+    {
+        if (!is_error_rsp(pRspInfo)) {
+            QString log_str = "tr API登录成功";
+            APP_LOG(applog::LOG_INFO) << log_str.toStdString();
+            emit signals_write_log(log_str);
+            m_blogin_status = true;
+        }
+        else {
+            QString log_str = QObject::tr("%1%2").arg("登录失败，错误码:").
+                arg(pRspInfo->ErrorID);
+            APP_LOG(applog::LOG_INFO) << log_str.toStdString();
+            emit signals_write_log(log_str);
+
+        }
+        m_Event.SignalEvent();
+    }
+
+    void Trade::OnRspError(CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast)
+    {
+        is_error_rsp(pRspInfo);
+    }
+
+    void Trade::OnFrontDisconnected(int nReason)
     {
         if (!m_running) return;
-        QString log_str = QObject::tr("%1%2").arg("API断开,断开原因:").
-            arg(reasonCode);
+        QString log_str = QObject::tr("%1%2").arg("tr API断开,断开原因:").
+            arg(nReason);
         APP_LOG(applog::LOG_INFO) << log_str.toStdString();
         emit signals_write_log(log_str);
 
@@ -432,6 +467,203 @@ namespace future
         m_chk_thread = std::make_shared<std::thread>(
             std::bind(&Trade::thread_reconnect, this));
     }
+
+    void Trade::OnHeartBeatWarning(int nTimeLapse)
+    {
+        std::cerr << "=====网络心跳超时=====" << std::endl;
+        std::cerr << "距上次连接时间： " << nTimeLapse << std::endl;
+    }
+
+    void Trade::OnRspUserLogout(
+        CThostFtdcUserLogoutField *pUserLogout,
+        CThostFtdcRspInfoField *pRspInfo,
+        int nRequestID,
+        bool bIsLast)
+    {
+        std::cout << __FUNCTION__ << std::endl;
+        if (!is_error_rsp(pRspInfo)) {
+            std::cout << "账户登出成功" << std::endl;
+            std::cout << "经纪商： " << pUserLogout->BrokerID << std::endl;
+            std::cout << "帐户名： " << pUserLogout->UserID << std::endl;
+        }
+        else {
+            std::cerr << "返回错误ErrorID=" << pRspInfo->ErrorID << ", ErrorMsg=" << pRspInfo->ErrorMsg << std::endl;
+        }
+    }
+
+    void Trade::OnRspSettlementInfoConfirm(
+        CThostFtdcSettlementInfoConfirmField *pSettlementInfoConfirm,
+        CThostFtdcRspInfoField *pRspInfo,
+        int nRequestID,
+        bool bIsLast)
+    {
+        if (!is_error_rsp(pRspInfo)) {
+            QString log_str = "tr API结算结果确认成功";
+            APP_LOG(applog::LOG_INFO) << log_str.toStdString();
+            emit signals_write_log(log_str);
+            m_bconfirm_status = true;
+            m_Event.SignalEvent();
+        }
+    }
+
+    void Trade::OnRspQryInstrument(
+        CThostFtdcInstrumentField *pInstrument,
+        CThostFtdcRspInfoField *pRspInfo,
+        int nRequestID,
+        bool bIsLast)
+    {
+        if (!is_error_rsp(pRspInfo)) {
+            std::cout << "=====查询合约结果成功=====" << std::endl;
+            std::cout << "交易所代码： " << pInstrument->ExchangeID << std::endl;
+            std::cout << "合约代码： " << pInstrument->InstrumentID << std::endl;
+            std::cout << "合约在交易所的代码： " << pInstrument->ExchangeInstID << std::endl;
+            std::cout << "执行价： " << pInstrument->StrikePrice << std::endl;
+            std::cout << "到期日： " << pInstrument->EndDelivDate << std::endl;
+            std::cout << "当前交易状态： " << pInstrument->IsTrading << std::endl;
+        }
+    }
+
+    void Trade::OnRspQryTradingAccount(
+        CThostFtdcTradingAccountField *pTradingAccount,
+        CThostFtdcRspInfoField *pRspInfo,
+        int nRequestID,
+        bool bIsLast)
+    {
+        if (!is_error_rsp(pRspInfo)) {
+            std::cout << "=====查询投资者资金账户成功=====" << std::endl;
+            std::cout << "投资者账号： " << pTradingAccount->AccountID << std::endl;
+            std::cout << "可用资金： " << pTradingAccount->Available << std::endl;
+            std::cout << "可取资金： " << pTradingAccount->WithdrawQuota << std::endl;
+            std::cout << "当前保证金: " << pTradingAccount->CurrMargin << std::endl;
+            std::cout << "平仓盈亏： " << pTradingAccount->CloseProfit << std::endl;
+
+        }
+    }
+
+    void Trade::OnRspQryInvestorPosition(
+        CThostFtdcInvestorPositionField *pInvestorPosition,
+        CThostFtdcRspInfoField *pRspInfo,
+        int nRequestID,
+        bool bIsLast)
+    {
+        if (!is_error_rsp(pRspInfo)) {
+            std::cout << "=====查询投资者持仓成功=====" << std::endl;
+            if (pInvestorPosition) {
+                std::cout << "合约代码： " << pInvestorPosition->InstrumentID << std::endl;
+                std::cout << "开仓价格： " << pInvestorPosition->OpenAmount << std::endl;
+                std::cout << "开仓量： " << pInvestorPosition->OpenVolume << std::endl;
+                std::cout << "开仓方向： " << pInvestorPosition->PosiDirection << std::endl;
+                std::cout << "占用保证金：" << pInvestorPosition->UseMargin << std::endl;
+            }
+            else
+                std::cout << "----->该合约未持仓" << std::endl;
+        }
+    }
+
+    void Trade::OnRspOrderInsert(
+        CThostFtdcInputOrderField *pInputOrder,
+        CThostFtdcRspInfoField *pRspInfo,
+        int nRequestID,
+        bool bIsLast)
+    {
+        std::cout << __FUNCTION__ << std::endl;
+        if (!is_error_rsp(pRspInfo)) {
+            std::cout << "=====报单录入成功=====" << std::endl;
+            std::cout << "合约代码： " << pInputOrder->InstrumentID << std::endl;
+            std::cout << "价格： " << pInputOrder->LimitPrice << std::endl;
+            std::cout << "数量： " << pInputOrder->VolumeTotalOriginal << std::endl;
+            std::cout << "开仓方向： " << pInputOrder->Direction << std::endl;
+        }
+    }
+
+    void Trade::OnRspOrderAction(
+        CThostFtdcInputOrderActionField *pInputOrderAction,
+        CThostFtdcRspInfoField *pRspInfo,
+        int nRequestID,
+        bool bIsLast)
+    {
+        std::cout << __FUNCTION__ << std::endl;
+        if (!is_error_rsp(pRspInfo)) {
+            std::cout << "=====报单操作成功=====" << std::endl;
+            std::cout << "合约代码： " << pInputOrderAction->InstrumentID << std::endl;
+            std::cout << "操作标志： " << pInputOrderAction->ActionFlag;
+        }
+    }
+
+    void Trade::OnRtnOrder(CThostFtdcOrderField *pOrder)
+    {
+        std::cout << __FUNCTION__ << std::endl;
+        std::cout << "=====收到报单应答=====" << std::endl;
+        APP_LOG(applog::LOG_INFO)
+            << "OrderRef： " << pOrder->OrderRef << " "
+            << "FrontID： " << pOrder->FrontID << " "
+            << "SessionID： " << pOrder->SessionID << " "
+
+            << "Direction： " << pOrder->Direction << " "
+            << "CombOffsetFlag： " << pOrder->CombOffsetFlag << " "
+            << "CombHedgeFlag： " << pOrder->CombHedgeFlag << " "
+            << "LimitPrice： " << pOrder->LimitPrice << " "
+            << "VolumeTotalOriginal： " << pOrder->VolumeTotalOriginal << " "
+            << "RequestID： " << pOrder->RequestID << " "
+
+            << "OrderLocalID： " << pOrder->OrderLocalID << " "
+            << "ExchangeID： " << pOrder->ExchangeID << " "
+            << "TraderID： " << pOrder->TraderID << " "
+
+            << "OrderSubmitStatus： " << pOrder->OrderSubmitStatus << " "
+            << "TradingDay： " << pOrder->TradingDay << " "
+
+            << "OrderSysID： " << pOrder->OrderSysID << " "
+
+            << "OrderStatus： " << pOrder->OrderStatus << " "
+            << "OrderType： " << pOrder->OrderType << " "
+            << "VolumeTraded： " << pOrder->VolumeTraded << " "
+            << "VolumeTotal： " << pOrder->VolumeTotal << " "
+            << "InsertDate： " << pOrder->InsertDate << " "
+            << "InsertTime： " << pOrder->InsertTime << " "
+            << "SequenceNo： " << pOrder->SequenceNo << " "
+            << "StatusMsg： " << pOrder->StatusMsg;
+
+    }
+
+    void Trade::OnRtnTrade(CThostFtdcTradeField *pTrade)
+    {
+        std::cout << __FUNCTION__ << std::endl;
+        std::cout << "=====报单成功成交=====" << std::endl;
+        APP_LOG(applog::LOG_INFO)
+
+            << "OrderRef： " << pTrade->OrderRef << " "
+            << "ExchangeID： " << pTrade->ExchangeID << " "
+            << "TradeID： " << pTrade->TradeID << " "
+            << "Direction： " << pTrade->Direction << " "
+            << "OrderSysID： " << pTrade->OrderSysID << " "
+            << "OffsetFlag： " << pTrade->OffsetFlag << " "
+            << "HedgeFlag： " << pTrade->HedgeFlag << " "
+            << "Price： " << pTrade->Price << " "
+            << "Volume： " << pTrade->Volume << " "
+            << "TradeDate： " << pTrade->TradeDate << " "
+            << "TradeTime： " << pTrade->TradeTime << " "
+            << "TradeType： " << pTrade->TradeType << " "
+            << "TraderID： " << pTrade->TraderID << " "
+            << "OrderLocalID： " << pTrade->OrderLocalID << " "
+            << "SequenceNo： " << pTrade->SequenceNo << " "
+            << "TradingDay： " << pTrade->TradingDay << " "
+            << "TradeSource： " << pTrade->TradeSource;
+    }
+
+
+    ///报单录入错误回报
+    void Trade::OnErrRtnOrderInsert(CThostFtdcInputOrderField *pInputOrder, CThostFtdcRspInfoField *pRspInfo)
+    {
+        std::cout << __FUNCTION__ << std::endl;
+    }
+
+    ///报单操作错误回报
+    void Trade::OnErrRtnOrderAction(CThostFtdcOrderActionField *pOrderAction, CThostFtdcRspInfoField *pRspInfo)
+    {
+        std::cout << __FUNCTION__ << std::endl;
+    }
+
     //委托、撤单回报
     void TAP_CDECL Trade::OnRtnOrder(const TapAPIOrderInfoNotice *info)
     {

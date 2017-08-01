@@ -18,7 +18,6 @@ shengkaishan     2017.4.25   1.0     Create
 #include <string.h>
 #include "singleton.h"
 #include "common.h"
-#include "iTapTradeAPI.h"
 #include "Trade.h"
 
 namespace future
@@ -50,7 +49,7 @@ namespace future
             return ctptrader_spi_inst;
         }
     private:
-        ITapTradeAPI* ctptrader_api_inst;
+        CThostFtdcTraderApi* ctptrader_api_inst;
         Trade* ctptrader_spi_inst;
 
         future_platform* m_future_platform;

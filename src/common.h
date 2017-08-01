@@ -29,6 +29,8 @@ using namespace std;
 
 namespace future
 {
+    const int TAPIERROR_SUCCEED = 0;
+
     const int MD_TYPE = 0;
     const int TRADER_TYPE = 1;
 
