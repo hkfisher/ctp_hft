@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/future_platform">
+        <file>Resources/close.ico</file>
+    </qresource>
+</RCC>
