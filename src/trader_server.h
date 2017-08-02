@@ -22,7 +22,6 @@ shengkaishan     2017.4.25   1.0     Create
 
 namespace future
 {
-    class future_platform;
     class trader_server 
         : public singleton<trader_server>
     { 
@@ -35,15 +34,6 @@ namespace future
         void start_server();
         void join_server();
 
-        void set_future_platform(future_platform* inst)
-        {
-            m_future_platform = inst;
-        }
-        future_platform* get_future_platform()
-        {
-            return m_future_platform;
-        }
-
         Trade* get_trader_spi()
         {
             return ctptrader_spi_inst;
@@ -51,8 +41,6 @@ namespace future
     private:
         CThostFtdcTraderApi* ctptrader_api_inst;
         Trade* ctptrader_spi_inst;
-
-        future_platform* m_future_platform;
     }; 
 
 }

@@ -26,7 +26,6 @@ namespace future
     {
         ctptrader_spi_inst->m_running = false;
         if (ctptrader_api_inst) {
-            ctptrader_api_inst->RegisterSpi(nullptr);
             ctptrader_api_inst->Release();
         }
         if (ctptrader_spi_inst->m_chk_thread != nullptr) {

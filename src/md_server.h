@@ -21,7 +21,6 @@ shengkaishan     2017.4.25   1.0     Create
 #include "common.h"
 namespace future 
 {
-    class future_platform;
     class md_server : public singleton<md_server>
     { 
     private:
@@ -30,17 +29,8 @@ namespace future
 
         friend class singleton<md_server>;
     public:
-        int start_server();
+        void start_server();
         void join_server();
-
-        void set_future_platform(future_platform* inst)
-        {
-            m_future_platform = inst;
-        }
-        future_platform* get_future_platform()
-        {
-            return m_future_platform;
-        }
 
         Quote* get_md_spi()
         {
@@ -49,7 +39,6 @@ namespace future
     private:
         CThostFtdcMdApi* ctpmd_api_inst;
         Quote *ctpmd_spi_inst;
-        future_platform* m_future_platform;
     }; 
 
 }

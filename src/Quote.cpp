@@ -33,13 +33,13 @@ namespace future
         m_chk_thread(nullptr),
         m_running(true)
     {
-        m_map_contract.clear();
+        m_ppinstrument[0] = new char[32];
     }
 
 
     Quote::~Quote(void)
     {
-        m_map_contract.clear();
+        delete[] m_ppinstrument[0];
     }
 
 
@@ -80,16 +80,17 @@ namespace future
         log_str = "正在登录行情服务";
         APP_LOG(applog::LOG_INFO) << log_str.toStdString();
         emit signals_write_log(log_str);
-        string key = "md_info/brokerid";
+        key = "md_info/brokerid";
         QString md_brokerid = common::get_config_value(key).toString();
         key = "md_info/userid";
         QString md_userid = common::get_config_value(key).toString();
         key = "md_info/passwd";
-        QString md_passwd = common::getXorEncryptDecrypt(
-            common::get_config_value(key).toString());
+        //QString md_passwd = common::getXorEncryptDecrypt(
+        //    common::get_config_value(key).toString());
+        QString md_passwd = common::get_config_value(key).toString();
         CThostFtdcReqUserLoginField loginReq;
         memset(&loginReq, 0, sizeof(loginReq));
-        strcpy(loginReq.BrokerID, md_brokerid.toStdString.c_str());
+        strcpy(loginReq.BrokerID, md_brokerid.toStdString().c_str());
         strcpy(loginReq.UserID, md_userid.toStdString().c_str());
         strcpy(loginReq.Password, md_passwd.toStdString().c_str());
         ret = m_pAPI->ReqUserLogin(&loginReq, m_requestid++);
@@ -121,9 +122,8 @@ namespace future
 
         int ret = TAPIERROR_SUCCEED;
         //订阅行情
-        char ppInstrumentID[1][10];
-        strcpy(ppInstrumentID[0], contract.c_str());
-        ret = m_pAPI->SubscribeMarketData((char**)ppInstrumentID, 1);
+        strcpy(m_ppinstrument[0], contract.c_str());
+        ret = m_pAPI->SubscribeMarketData(m_ppinstrument, 1);
         if (TAPIERROR_SUCCEED != ret) {
             cout << "SubscribeMarketData Error:" << ret << endl;
             return;
@@ -137,9 +137,8 @@ namespace future
         emit signals_write_log(log_str);
         int ret = TAPIERROR_SUCCEED;
         //订阅行情
-        char ppInstrumentID[1][10];
-        strcpy(ppInstrumentID[0], contract.c_str());
-        ret = m_pAPI->UnSubscribeMarketData((char**)ppInstrumentID, 1);
+        strcpy(m_ppinstrument[0], contract.c_str());
+        ret = m_pAPI->UnSubscribeMarketData(m_ppinstrument, 1);
         if (TAPIERROR_SUCCEED != ret) {
             cout << "UnSubscribeMarketData Error:" << ret << endl;
             return;
@@ -154,6 +153,14 @@ namespace future
             }
             Sleep(3000);
         }
+    }
+
+    bool Quote::is_error_rsp(CThostFtdcRspInfoField *pRspInfo)
+    {
+        bool bResult = pRspInfo && (pRspInfo->ErrorID != 0);
+        if (bResult)
+            std::cerr << "返回错误ErrorID=" << pRspInfo->ErrorID << ", ErrorMsg=" << pRspInfo->ErrorMsg << std::endl;
+        return bResult;
     }
 
     // ---- ctp_api回调函数 ---- //
@@ -196,8 +203,7 @@ namespace future
         int nRequestID,
         bool bIsLast)
     {
-        bool bResult = pRspInfo && (pRspInfo->ErrorID != 0);
-        if (!bResult) {
+        if (!is_error_rsp(pRspInfo)) {
             QString log_str = "md API登录成功";
             APP_LOG(applog::LOG_INFO) << log_str.toStdString();
             emit signals_write_log(log_str);
@@ -221,8 +227,7 @@ namespace future
         bool bIsLast)
     {
         std::cout << __FUNCTION__ << std::endl;
-        bool bResult = pRspInfo && (pRspInfo->ErrorID != 0);
-        if (!bResult) {
+        if (!is_error_rsp(pRspInfo)) {
             std::cout << "账户登出成功" << std::endl;
             std::cout << "经纪商： " << pUserLogout->BrokerID << std::endl;
             std::cout << "帐户名： " << pUserLogout->UserID << std::endl;
@@ -236,8 +241,7 @@ namespace future
     void Quote::OnRspError(CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast)
     {
         std::cout << __FUNCTION__ << std::endl;
-        bool bResult = pRspInfo && (pRspInfo->ErrorID != 0);
-        if (bResult)
+        if (is_error_rsp(pRspInfo))
             std::cerr << "返回错误ErrorID=" << pRspInfo->ErrorID << ", ErrorMsg=" << pRspInfo->ErrorMsg << std::endl;
     }
 
@@ -249,8 +253,7 @@ namespace future
         int nRequestID,
         bool bIsLast)
     {
-        bool bResult = pRspInfo && (pRspInfo->ErrorID != 0);
-        if (!bResult) {
+        if (!is_error_rsp(pRspInfo)) {
             QString log_str = "行情订阅成功";
             APP_LOG(applog::LOG_INFO) << log_str.toStdString();
             emit signals_write_log(log_str);
@@ -272,8 +275,7 @@ namespace future
         bool bIsLast)
     {
         std::cout << __FUNCTION__ << std::endl;
-        bool bResult = pRspInfo && (pRspInfo->ErrorID != 0);
-        if (!bResult) {
+        if (!is_error_rsp(pRspInfo)) {
             std::cout << "=====取消订阅行情成功=====" << std::endl;
             std::cout << "合约代码： " << pSpecificInstrument->InstrumentID << std::endl;
         }

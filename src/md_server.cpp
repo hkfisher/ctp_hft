@@ -11,7 +11,6 @@ shengkaishan     2017.4.25   1.0     Create
 
 #include "md_server.h"
 #include "applog.h"
-//#include "Quote.h"
 #include "QuoteConfig.h"
 
 namespace future 
@@ -26,7 +25,6 @@ namespace future
     {
         ctpmd_spi_inst->m_running = false;
         if (ctpmd_api_inst) {
-            ctpmd_api_inst->RegisterSpi(nullptr);
             ctpmd_api_inst->Release();
         }
         if (ctpmd_spi_inst->m_chk_thread != nullptr) {
@@ -38,14 +36,11 @@ namespace future
         ctpmd_spi_inst = NULL;
     }
 
-    int md_server::start_server()
+    void md_server::start_server()
     {
-        int iErr = 0;
-
         //Æô¶¯²âÊÔ£¬¶©ÔÄÐÐÇé
         ctpmd_spi_inst->SetAPI(ctpmd_api_inst);
-        iErr = ctpmd_spi_inst->Run();
-        return iErr;
+        ctpmd_spi_inst->Run();
     }
 
     void md_server::join_server()

@@ -44,7 +44,7 @@ namespace future
 
     private:
         void thread_reconnect();
-
+        bool is_error_rsp(CThostFtdcRspInfoField *pRspInfo); // 是否收到错误信息
     public:
         ///当客户端与交易后台建立起通信连接时（还未登录前），该方法被调用。
         void OnFrontConnected();
@@ -87,6 +87,8 @@ namespace future
         bool        m_bfront_status;
         bool        m_blogin_status;
         bool        m_connect_state;
+
+        char* m_ppinstrument[1];
     public:
         atomic<bool> m_running;
         std::shared_ptr<std::thread> m_chk_thread;

@@ -34,8 +34,8 @@ namespace future
         void SetAPI(CThostFtdcTraderApi *pAPI);
         void Run();
 
-        void qry_postion();
-        void qry_order();
+        //void qry_postion();
+        //void qry_order();
         void order_open(string& account, string& contract, double price);
         void order_withdraw();
         void order_close(string& account, string& contract);
@@ -47,7 +47,7 @@ namespace future
         void signals_withdraw_order(QString order_no);
 
     private:
-        void order_state_handle(const TapAPIOrderInfoNotice *info);
+        void order_state_handle(const CThostFtdcOrderField *info);
         void thread_reconnect();
 
         bool is_error_rsp(CThostFtdcRspInfoField *pRspInfo); // 是否收到错误信息
@@ -76,9 +76,6 @@ namespace future
         ///请求查询合约响应
         void OnRspQryInstrument(CThostFtdcInstrumentField *pInstrument, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
 
-        ///请求查询资金账户响应
-        void OnRspQryTradingAccount(CThostFtdcTradingAccountField *pTradingAccount, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
-
         ///请求查询投资者持仓响应
         void OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *pInvestorPosition, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
 
@@ -103,17 +100,15 @@ namespace future
     private:
         CThostFtdcTraderApi *m_pAPI;
         int    m_requestid;
+        string m_brokerid;
+        string m_investorid;
         SimpleEvent m_Event;
         bool        m_bfront_status;
         bool        m_blogin_status;
         bool        m_bconfirm_status;
-        bool        m_bContract;
         bool        m_bposition;
         bool        m_border;
-        map<string, string> m_map_contract;
-
         bool        m_connect_state;
-
         map<string, char> m_map_order;
     public:
         atomic<bool> m_running;

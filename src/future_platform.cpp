@@ -161,9 +161,7 @@ namespace future
 
         init();
 
-        //md_server::get_instance()->set_future_platform(this);
         md_server::get_instance()->start_server();
-        //trader_server::get_instance()->set_future_platform(this);
         trader_server::get_instance()->start_server();
     }
 
@@ -250,16 +248,16 @@ namespace future
     void future_platform::slot_state_changed(char state, char effect, QString deal_price)
     {
         switch (state) {
-        case TAPI_ORDER_STATE_QUEUED:
+        case THOST_FTDC_OST_Touched:
         {
             deal_price_line_edit_->setText(deal_price);
             order_open_btn_->setText("弃单");
             break;
         }
-        case TAPI_ORDER_STATE_FINISHED:
+        case THOST_FTDC_OST_AllTraded:
         {
             order_open_btn_->setText("挂单");
-            if (effect == TAPI_SIDE_SELL) {
+            if (effect == THOST_FTDC_D_Sell) {
                 order_open_btn_->setEnabled(false);
                 order_close_btn_->setHidden(false);
                 deal_price_line_edit_->setText(deal_price);
@@ -269,18 +267,13 @@ namespace future
                 quote_diff_label_->setText(
                     QString::number(diff_price, 10, 2));
             } 
-            else if (effect == TAPI_SIDE_BUY) {
+            else if (effect == THOST_FTDC_D_Buy) {
                 order_open_btn_->setEnabled(true);
                 order_close_btn_->setHidden(true);
             }
             break;
         }
-        case TAPI_ORDER_STATE_CANCELED:
-        {
-            order_open_btn_->setText("挂单");
-            break;
-        }
-        case TAPI_ORDER_STATE_LEFTDELETED:
+        case THOST_FTDC_OST_Canceled:
         {
             order_open_btn_->setText("挂单");
             break;
@@ -288,7 +281,6 @@ namespace future
         default:
             break;
         }
-
     }
 
     void future_platform::slot_close_position(QString commodity_no, QString contract_no)
