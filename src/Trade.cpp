@@ -125,18 +125,26 @@ namespace future
             return;
         }
 
-        //qry_postion();
-        ////等待qry_postion
-        //m_Event.WaitEvent();
-        //if (!m_bposition) {
-        //    return;
-        //}
+        ret = qry_postion();
+        if (TAPIERROR_SUCCEED != ret) {
+            cout << "qry_postion Error:" << ret << endl;
+            return;
+        }
+        //等待qry_postion
+        m_Event.WaitEvent();
+        if (!m_bposition) {
+            return;
+        }
 
-        //qry_order();
-        //m_Event.WaitEvent();
-        //if (!m_border) {
-        //    return;
-        //}
+        ret = qry_order();
+        if (TAPIERROR_SUCCEED != ret) {
+            cout << "qry_order Error:" << ret << endl;
+            return;
+        }
+        m_Event.WaitEvent();
+        if (!m_border) {
+            return;
+        }
 
         log_str = "交易服务登录完成";
         APP_LOG(applog::LOG_INFO) << log_str.toStdString();
@@ -144,41 +152,27 @@ namespace future
 
         m_connect_state = true;
     }
-#if 0
-    void Trade::qry_postion()
+
+    int Trade::qry_postion()
     {
-        string key = "trader_info/userid";
-        QString userid = common::get_config_value(key).toString();
-
-        TapAPIPositionQryReq req;
-        memset(&req, 0, sizeof(req));
-        strcpy(req.AccountNo, userid.toStdString().c_str());
-
-        TAPIINT32 iErr = TAPIERROR_SUCCEED;
-        m_uiSessionID = 0;
-        iErr = m_pAPI->QryPosition(&m_uiSessionID, &req);
-        if (iErr != TAPIERROR_SUCCEED) {
-            cout << "QryPosition Error:" << iErr << endl;
-        }
+        CThostFtdcQryInvestorPositionField postionReq;
+        memset(&postionReq, 0, sizeof(postionReq));
+        strcpy(postionReq.BrokerID, m_brokerid.c_str());
+        strcpy(postionReq.InvestorID, m_investorid.c_str());
+        //strcpy(postionReq.InstrumentID, g_pTradeInstrumentID);
+        std::this_thread::sleep_for(std::chrono::milliseconds(700)); // 有时候需要停顿一会才能查询成功
+        return m_pAPI->ReqQryInvestorPosition(&postionReq, m_requestid++);
     }
 
-    void Trade::qry_order()
+    int Trade::qry_order()
     {
-        string key = "trader_info/userid";
-        QString userid = common::get_config_value(key).toString();
-
-        TapAPIOrderQryReq req;
+        CThostFtdcQryOrderField req;
         memset(&req, 0, sizeof(req));
-        strcpy(req.AccountNo, userid.toStdString().c_str());
+        strcpy(req.BrokerID, m_brokerid.c_str());
+        strcpy(req.InvestorID, m_investorid.c_str());
 
-        TAPIINT32 iErr = TAPIERROR_SUCCEED;
-        m_uiSessionID = 0;
-        iErr = m_pAPI->QryOrder(&m_uiSessionID, &req);
-        if (iErr != TAPIERROR_SUCCEED) {
-            cout << "QryOrder Error:" << iErr << endl;
-        }
+        return m_pAPI->ReqQryOrder(&req, m_requestid++);
     }
-#endif
 
     void Trade::order_open(string& account, string& contract, double price)
     {
@@ -268,7 +262,7 @@ namespace future
             return;
         }
     }
-    void Trade::order_close(string& account, string& contract)
+    void Trade::order_close(string& account, string& contract, double price)
     {
         QString log_str = QObject::tr("%1%2").arg("市价平仓").arg(contract.c_str());
         APP_LOG(applog::LOG_INFO) << log_str.toStdString();
@@ -286,7 +280,7 @@ namespace future
         ///报单引用
         strcpy(orderInsertReq.OrderRef, std::to_string(m_requestid).c_str());
         ///报单价格条件: 限价
-        orderInsertReq.OrderPriceType = THOST_FTDC_OPT_AnyPrice;
+        orderInsertReq.OrderPriceType = THOST_FTDC_OPT_LimitPrice;
         ///买卖方向: 
         orderInsertReq.Direction = THOST_FTDC_D_Buy;
         ///组合开平标志: 开仓
@@ -294,11 +288,11 @@ namespace future
         ///组合投机套保标志
         orderInsertReq.CombHedgeFlag[0] = THOST_FTDC_HF_Speculation;
         ///价格
-        orderInsertReq.LimitPrice = DEFAULT_ORDER_PRICE;
+        orderInsertReq.LimitPrice = price;
         ///数量：1
         orderInsertReq.VolumeTotalOriginal = DEFAULT_ORDER_QTY;
         ///有效期类型: 当日有效
-        orderInsertReq.TimeCondition = THOST_FTDC_TC_GFD;
+        orderInsertReq.TimeCondition = THOST_FTDC_TC_IOC;
         ///成交量类型: 任何数量
         orderInsertReq.VolumeCondition = THOST_FTDC_VC_AV;
         ///最小成交量: 1
@@ -325,15 +319,15 @@ namespace future
     void Trade::order_state_handle(const CThostFtdcOrderField *info)
     {
         //! 委托状态类型
-        //#define THOST_FTDC_OST_AllTraded '0'                    ///全部成交
-        //#define THOST_FTDC_OST_PartTradedQueueing '1'           ///部分成交还在队列中
-        //#define THOST_FTDC_OST_PartTradedNotQueueing '2'        ///部分成交不在队列中
-        //#define THOST_FTDC_OST_NoTradeQueueing '3'              ///未成交还在队列中
-        //#define THOST_FTDC_OST_NoTradeNotQueueing '4'           ///未成交不在队列中
-        //#define THOST_FTDC_OST_Canceled '5'                     ///撤单
-        //#define THOST_FTDC_OST_Unknown 'a'                      ///未知
-        //#define THOST_FTDC_OST_NotTouched 'b'                   ///尚未触发
-        //#define THOST_FTDC_OST_Touched 'c'                      ///已触发
+        //#define THOST_FTDC_OST_AllTraded '0'                    ///全部成交 (最终状态)
+        //#define THOST_FTDC_OST_PartTradedQueueing '1'           ///部分成交还在队列中 （可撤单）
+        //#define THOST_FTDC_OST_PartTradedNotQueueing '2'        ///部分成交不在队列中 (最终状态)
+        //#define THOST_FTDC_OST_NoTradeQueueing '3'              ///未成交还在队列中 （可撤单）
+        //#define THOST_FTDC_OST_NoTradeNotQueueing '4'           ///未成交不在队列中 (最终状态)
+        //#define THOST_FTDC_OST_Canceled '5'                     ///撤单 (最终状态)
+        //#define THOST_FTDC_OST_Unknown 'a'                      ///未知 (成交时会推送)
+        //#define THOST_FTDC_OST_NotTouched 'b'                   ///尚未触发 ？
+        //#define THOST_FTDC_OST_Touched 'c'                      ///已触发 ？
         switch (info->OrderStatus) {
         case THOST_FTDC_OST_Unknown:
         case THOST_FTDC_OST_NotTouched:
@@ -344,7 +338,7 @@ namespace future
             break;
         }
         case THOST_FTDC_OST_NoTradeQueueing:
-        case THOST_FTDC_OST_NoTradeNotQueueing:
+        case THOST_FTDC_OST_NoTradeNotQueueing: //最终状态？
         case THOST_FTDC_OST_Touched:
         {
             string key = "order_info/ExchangeID";
@@ -363,7 +357,7 @@ namespace future
             break;
         }
         case THOST_FTDC_OST_PartTradedQueueing:
-        case THOST_FTDC_OST_PartTradedNotQueueing:
+        case THOST_FTDC_OST_PartTradedNotQueueing: //最终状态？
         {
             APP_LOG(applog::LOG_INFO) << "部分成交";
             break;
@@ -382,8 +376,8 @@ namespace future
                 '0',
                 QString::number(0, 10, 0));
 
-            QString log_str = QObject::tr("%1%2").arg("撤单成功,流水号:").
-                arg(info->OrderSysID);
+            QString log_str = QObject::tr("%1%2%3%4").arg("撤单成功,流水号:").
+                arg(info->OrderSysID).arg("状态信息：").arg(QString::fromLocal8Bit(info->StatusMsg));;
             APP_LOG(applog::LOG_INFO) << log_str.toStdString();
             emit signals_write_log(log_str);
             break;
@@ -412,7 +406,7 @@ namespace future
 
     void Trade::OnFrontConnected()
     {
-        QString log_str = "tr API连接成功";
+        QString log_str = "交易API连接成功";
         APP_LOG(applog::LOG_INFO) << log_str.toStdString();
         emit signals_write_log(log_str);
         m_bfront_status = true;
@@ -426,7 +420,7 @@ namespace future
         bool bIsLast)
     {
         if (!is_error_rsp(pRspInfo)) {
-            QString log_str = "tr API登录成功";
+            QString log_str = "交易API登录成功";
             APP_LOG(applog::LOG_INFO) << log_str.toStdString();
             emit signals_write_log(log_str);
             m_blogin_status = true;
@@ -449,7 +443,7 @@ namespace future
     void Trade::OnFrontDisconnected(int nReason)
     {
         if (!m_running) return;
-        QString log_str = QObject::tr("%1%2").arg("tr API断开,断开原因:").
+        QString log_str = QObject::tr("%1%2").arg("交易API断开,断开原因:").
             arg(nReason);
         APP_LOG(applog::LOG_INFO) << log_str.toStdString();
         emit signals_write_log(log_str);
@@ -490,10 +484,10 @@ namespace future
         bool bIsLast)
     {
         if (!is_error_rsp(pRspInfo)) {
-            QString log_str = "tr API结算结果确认成功";
+            QString log_str = "交易API结算结果确认成功";
             APP_LOG(applog::LOG_INFO) << log_str.toStdString();
             emit signals_write_log(log_str);
-            m_blogin_status = true;
+            m_bconfirm_status = true;
         }
         else {
             QString log_str = QObject::tr("%1%2").arg("结算结果确认失败，错误码:").
@@ -530,17 +524,132 @@ namespace future
         bool bIsLast)
     {
         if (!is_error_rsp(pRspInfo)) {
-            std::cout << "=====查询投资者持仓成功=====" << std::endl;
-            if (pInvestorPosition) {
-                std::cout << "合约代码： " << pInvestorPosition->InstrumentID << std::endl;
-                std::cout << "开仓价格： " << pInvestorPosition->OpenAmount << std::endl;
-                std::cout << "开仓量： " << pInvestorPosition->OpenVolume << std::endl;
-                std::cout << "开仓方向： " << pInvestorPosition->PosiDirection << std::endl;
-                std::cout << "占用保证金：" << pInvestorPosition->UseMargin << std::endl;
+            if (pInvestorPosition == nullptr) {
+                m_bposition = true;
+                m_Event.SignalEvent();
+                return;
             }
-            else
-                std::cout << "----->该合约未持仓" << std::endl;
+
+            if (!bIsLast) {
+                CThostFtdcInputOrderField orderInsertReq;
+                memset(&orderInsertReq, 0, sizeof(orderInsertReq));
+                ///经纪公司代码
+                strcpy(orderInsertReq.BrokerID, m_brokerid.c_str());
+                ///投资者代码
+                strcpy(orderInsertReq.InvestorID, m_investorid.c_str());
+                ///合约代码
+                strcpy(orderInsertReq.InstrumentID, pInvestorPosition->InstrumentID);
+                ///报单引用
+                strcpy(orderInsertReq.OrderRef, std::to_string(m_requestid).c_str());
+                ///报单价格条件: 限价
+                orderInsertReq.OrderPriceType = THOST_FTDC_OPT_LimitPrice;
+                ///买卖方向: 
+                orderInsertReq.Direction = (pInvestorPosition->PosiDirection == THOST_FTDC_PD_Short) ?
+                THOST_FTDC_D_Buy : THOST_FTDC_D_Sell;
+                ///组合开平标志: 开仓
+                orderInsertReq.CombOffsetFlag[0] = THOST_FTDC_OF_Close;
+                ///组合投机套保标志
+                orderInsertReq.CombHedgeFlag[0] = THOST_FTDC_HF_Speculation;
+                ///价格
+                orderInsertReq.LimitPrice = pInvestorPosition->PreSettlementPrice + 100;
+                ///数量：1
+                orderInsertReq.VolumeTotalOriginal = pInvestorPosition->Position;
+                ///有效期类型: 当日有效
+                orderInsertReq.TimeCondition = THOST_FTDC_TC_GFD;
+                ///成交量类型: 任何数量
+                orderInsertReq.VolumeCondition = THOST_FTDC_VC_AV;
+                ///最小成交量: 1
+                orderInsertReq.MinVolume = 1;
+                ///触发条件: 立即
+                orderInsertReq.ContingentCondition = THOST_FTDC_CC_Immediately;
+                ///强平原因: 非强平
+                orderInsertReq.ForceCloseReason = THOST_FTDC_FCC_NotForceClose;
+                ///自动挂起标志: 否
+                orderInsertReq.IsAutoSuspend = 0;
+                ///用户强评标志: 否
+                orderInsertReq.UserForceClose = 0;
+
+                int ret = m_pAPI->ReqOrderInsert(&orderInsertReq, m_requestid++);
+                if (TAPIERROR_SUCCEED != ret) {
+                    QString log_str = QObject::tr("%1%2").arg("买平失败，错误码:").
+                        arg(ret);
+                    APP_LOG(applog::LOG_INFO) << log_str.toStdString();
+                    emit signals_write_log(log_str);
+                    return;
+                }
+            }
+            else {
+                emit signals_close_position("", pInvestorPosition->InstrumentID);
+                m_bposition = true;
+                m_Event.SignalEvent();
+            }
         }
+    }
+
+    void Trade::OnRspQryOrder(CThostFtdcOrderField *pOrder, 
+        CThostFtdcRspInfoField *pRspInfo, 
+        int nRequestID, 
+        bool bIsLast)
+    {
+        if (!is_error_rsp(pRspInfo)) {
+            if (pOrder == nullptr) {
+                m_border = true;
+                m_Event.SignalEvent();
+                return;
+            }
+
+            if (pOrder->OrderStatus == THOST_FTDC_OST_PartTradedQueueing ||
+                pOrder->OrderStatus == THOST_FTDC_OST_NoTradeQueueing) {
+                m_map_order[pOrder->OrderSysID] = pOrder->ExchangeID;
+            }
+
+            if (bIsLast) {
+                if (m_map_order.size() != 0) {
+                    auto last = m_map_order.end();
+                    last--;
+                    for (auto it = m_map_order.begin(); it != last; it++) {
+                        CThostFtdcInputOrderActionField orderActionReq;
+                        memset(&orderActionReq, 0, sizeof(orderActionReq));
+                        ///经纪公司代码
+                        strcpy(orderActionReq.BrokerID, m_brokerid.c_str());
+                        ///投资者代码
+                        strcpy(orderActionReq.InvestorID, m_investorid.c_str());
+                        ///交易所代码
+                        strcpy(orderActionReq.ExchangeID, it->second.c_str());
+                        ///报单编号
+                        strcpy(orderActionReq.OrderSysID, it->first.c_str());
+                        ///操作标志
+                        orderActionReq.ActionFlag = THOST_FTDC_AF_Delete;
+
+                        int ret = m_pAPI->ReqOrderAction(&orderActionReq, m_requestid++);
+                        if (TAPIERROR_SUCCEED != ret) {
+                            QString log_str = QObject::tr("%1%2").arg("撤单失败，错误码:").
+                                arg(ret);
+                            APP_LOG(applog::LOG_INFO) << log_str.toStdString();
+                            emit signals_write_log(log_str);
+                            return;
+                        }
+                    }
+                    string key = "order_info/ExchangeID";
+                    common::set_config_value(key, last->second);
+                    key = "order_info/OrderSysID";
+                    common::set_config_value(key, string(last->first));
+                    emit signals_withdraw_order(last->first.c_str());
+                }
+
+
+                m_border = true;
+                m_Event.SignalEvent();
+            }
+        }
+    }
+
+    void Trade::OnRspQryTrade(CThostFtdcTradeField *pTrade, 
+        CThostFtdcRspInfoField *pRspInfo, 
+        int nRequestID, 
+        bool bIsLast)
+    {
+        std::cout << __FUNCTION__ << std::endl;
     }
 
     void Trade::OnRspOrderInsert(
@@ -560,7 +669,7 @@ namespace future
         else {
             QString log_str = QObject::tr("交易核心返回报单失败,错误码:%1,错误信息:%2").
                 arg(pRspInfo->ErrorID).
-                arg(pRspInfo->ErrorMsg);
+                arg(QString::fromLocal8Bit(pRspInfo->ErrorMsg));
             APP_LOG(applog::LOG_INFO) << log_str.toStdString();
             emit signals_write_log(log_str);
         }
@@ -581,7 +690,7 @@ namespace future
         else {
             QString log_str = QObject::tr("交易核心返回撤单失败,错误码:%1,错误信息:%2").
                 arg(pRspInfo->ErrorID).
-                arg(pRspInfo->ErrorMsg);
+                arg(QString::fromLocal8Bit(pRspInfo->ErrorMsg));
             APP_LOG(applog::LOG_INFO) << log_str.toStdString();
             emit signals_write_log(log_str);
         }
@@ -614,7 +723,7 @@ namespace future
             << "InsertDate： " << pOrder->InsertDate << " "
             << "InsertTime： " << pOrder->InsertTime << " "
             << "SequenceNo： " << pOrder->SequenceNo << " "
-            << "StatusMsg： " << pOrder->StatusMsg;
+            << "StatusMsg： " << QString::fromLocal8Bit(pOrder->StatusMsg).toStdString();
         if (NULL == pOrder) return;
         //if (pOrder->OrderStatus != THOST_FTDC_OST_Canceled
         //    && pOrder->OrderStatus != THOST_FTDC_OST_AllTraded

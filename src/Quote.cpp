@@ -167,7 +167,7 @@ namespace future
     // 连接成功应答
     void Quote::OnFrontConnected()
     {
-        QString log_str = "md API连接成功";
+        QString log_str = "行情API连接成功";
         APP_LOG(applog::LOG_INFO) << log_str.toStdString();
         emit signals_write_log(log_str);
         m_bfront_status = true;
@@ -178,7 +178,7 @@ namespace future
     void Quote::OnFrontDisconnected(int nReason)
     {
         if (!m_running) return;
-        QString log_str = QObject::tr("%1%2").arg("API断开,断开原因:").
+        QString log_str = QObject::tr("%1%2").arg("行情API断开,断开原因:").
             arg(nReason);
         APP_LOG(applog::LOG_INFO) << log_str.toStdString();
         emit signals_write_log(log_str);
@@ -204,7 +204,7 @@ namespace future
         bool bIsLast)
     {
         if (!is_error_rsp(pRspInfo)) {
-            QString log_str = "md API登录成功";
+            QString log_str = "行情API登录成功";
             APP_LOG(applog::LOG_INFO) << log_str.toStdString();
             emit signals_write_log(log_str);
             m_blogin_status = true;

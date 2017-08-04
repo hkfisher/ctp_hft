@@ -225,8 +225,10 @@ namespace future
         QString qaccount = (t_user_line_edit_->text().split("/"))[1];
         string account = qaccount.toStdString();
         string contract = contract_line_edit_->text().toStdString();
+        double price = dot_line_edit_->text().toDouble() * 0.01 +
+            quote_line_edit_->text().toDouble();
         trader_server::get_instance()->get_trader_spi()->order_close(
-            account, contract);
+            account, contract, price);
     }
 
     void future_platform::slot_write_log(QString str)

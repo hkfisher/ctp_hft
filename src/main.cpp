@@ -15,7 +15,7 @@ shengkaishan     2017.4.25   1.0     Create
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
-    QTextCodec::setCodecForLocale(QTextCodec::codecForName("UTF-8"));
+    QTextCodec::setCodecForLocale(QTextCodec::codecForName("GBK"));
     future::future_platform w;
     w.start_server();
     w.show();

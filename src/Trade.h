@@ -34,11 +34,11 @@ namespace future
         void SetAPI(CThostFtdcTraderApi *pAPI);
         void Run();
 
-        //void qry_postion();
-        //void qry_order();
+        int qry_postion();
+        int qry_order();
         void order_open(string& account, string& contract, double price);
         void order_withdraw();
-        void order_close(string& account, string& contract);
+        void order_close(string& account, string& contract, double price);
 
     signals:
         void signals_write_log(QString str);
@@ -79,6 +79,12 @@ namespace future
         ///请求查询投资者持仓响应
         void OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *pInvestorPosition, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
 
+        ///请求查询报单响应
+        virtual void OnRspQryOrder(CThostFtdcOrderField *pOrder, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
+
+        ///请求查询成交响应
+        virtual void OnRspQryTrade(CThostFtdcTradeField *pTrade, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
+
         ///报单录入请求响应
         void OnRspOrderInsert(CThostFtdcInputOrderField *pInputOrder, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast);
 
@@ -109,7 +115,7 @@ namespace future
         bool        m_bposition;
         bool        m_border;
         bool        m_connect_state;
-        map<string, char> m_map_order;
+        map<string, string> m_map_order;
     public:
         atomic<bool> m_running;
         std::shared_ptr<std::thread> m_chk_thread;
