@@ -551,7 +551,7 @@ namespace future
                 ///组合投机套保标志
                 orderInsertReq.CombHedgeFlag[0] = THOST_FTDC_HF_Speculation;
                 ///价格
-                orderInsertReq.LimitPrice = pInvestorPosition->PreSettlementPrice + 100;
+                orderInsertReq.LimitPrice = pInvestorPosition->PreSettlementPrice;
                 ///数量：1
                 orderInsertReq.VolumeTotalOriginal = pInvestorPosition->Position;
                 ///有效期类型: 当日有效
